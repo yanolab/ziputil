@@ -9,7 +9,8 @@ import (
 )
 
 type ZipFile struct {
-	writer *zip.Writer
+	zipFile *os.File
+	writer  *zip.Writer
 }
 
 func Create(filename string) (*ZipFile, error) {
@@ -17,11 +18,15 @@ func Create(filename string) (*ZipFile, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &ZipFile{writer: zip.NewWriter(file)}, nil
+	return &ZipFile{zipFile: file, writer: zip.NewWriter(file)}, nil
 }
 
 func (z *ZipFile) Close() error {
-	return z.writer.Close()
+	err := z.writer.Close()
+	if err != nil {
+		return err
+	}
+	return z.zipFile.Close() // close the underlying writer
 }
 
 func (z *ZipFile) AddEntryN(path string, names ...string) error {
@@ -47,6 +52,7 @@ func (z *ZipFile) AddEntry(path, name string) error {
 	}
 
 	fh.Name = path
+	fh.Method = zip.Deflate // data compression algorithm
 
 	entry, err := z.writer.CreateHeader(fh)
 	if err != nil {
@@ -84,13 +90,20 @@ func (z *ZipFile) AddDirectory(path, dirName string) error {
 		return err
 	}
 
+	if len(files) == 0 {
+		err := z.AddEntry(path, dirName)
+		if err != nil {
+			return err
+		}
+		return nil
+	}
+
 	for _, file := range files {
 		localPath := filepath.Join(dirName, file.Name())
 		zipPath := filepath.Join(path, file.Name())
 
 		err = nil
 		if file.IsDir() {
-			z.AddEntry(path, dirName)
 			err = z.AddDirectory(zipPath, localPath)
 		} else {
 			err = z.AddEntry(zipPath, localPath)
